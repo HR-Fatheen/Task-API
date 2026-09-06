@@ -11,7 +11,7 @@ The API supports the complete CRUD lifecycle for tasks — creating, retrieving,
 * Pydantic request validation
 * Automatic Swagger/OpenAPI documentation
 * Proper HTTP status codes
-* In-memory task storage
+* SQLite database storage
 * Error handling for invalid titles and missing tasks
 
 ## Tech Stack
@@ -22,6 +22,7 @@ The API supports the complete CRUD lifecycle for tasks — creating, retrieving,
 | FastAPI           | Web framework                 |
 | Pydantic          | Request validation            |
 | Uvicorn           | ASGI server                   |
+| SQLite            | Database                      |
 | Swagger / OpenAPI | Interactive API documentation |
 
 ## Getting Started
@@ -91,7 +92,7 @@ From Swagger UI, you can execute and test all API endpoints directly from your b
 }
 ```
 
-Successful response:
+Example Successful response:
 
 ```json
 {
@@ -112,7 +113,7 @@ Successful response:
 }
 ```
 
-Successful response:
+Example Successful response:
 
 ```json
 {
@@ -126,7 +127,7 @@ Successful response:
 
 **DELETE `/tasks/{id}`**
 
-Successful response:
+Example Successful response:
 
 ```json
 {
@@ -146,9 +147,19 @@ Successful response:
 
 ## Data Storage
 
-This project currently uses **in-memory storage**.
+This project uses **SQLite** for persistent task storage.
 
-Tasks are stored in a Python list while the server is running. Restarting the server resets the task data to the initial list.
+SQLite was chosen because it is lightweight, serverless, requires zero separate database setup, and stores the database in a single file. This makes it suitable for this project while still providing persistence across server restarts.
+
+The database is stored locally as:
+
+`tasks.db`
+
+The database file is normally excluded from Git using `.gitignore`.
+
+The database and `tasks` table are created automatically when the application starts. If the table is empty, the application seeds it with three example tasks.
+
+All CRUD operations use SQLite queries with parameterized values.
 
 ## Project Structure
 
@@ -156,10 +167,25 @@ Tasks are stored in a Python list while the server is running. Restarting the se
 Assignment 1/
 │
 ├── main.py
+├── database.py
 ├── README.md
 ├── .gitignore
-└── .venv/
+├── database-screenshot.png
 ```
+
+## Example SQL Query
+
+The following query was used in DB Browser for SQLite to verify the tasks stored in the database:
+
+```sql
+SELECT * FROM tasks;
+```
+
+## SQLite Database
+
+The SQLite database was inspected using DB Browser for SQLite. The screenshot below shows the `tasks` table and the tasks stored in the database.
+
+![SQLite Database](database-screenshot.png)
 
 ## Swagger UI
 
@@ -167,12 +193,20 @@ The API was tested using FastAPI's built-in Swagger UI, including the complete C
 
 **Create → Read → Update → Delete**
 
-*Add your Swagger UI screenshot below.*
-
 ![Swagger UI](swagger-screenshot.png)
 
 ## Project Status
 
-**Stage 6 — Documentation & Publishing**
+**Assignment 2 — SQLite Database Migration**
 
-The API implements the complete CRUD workflow and includes interactive Swagger documentation.
+The API now uses SQLite for persistent task storage. All CRUD operations interact directly with the SQLite database, and task data persists across server restarts.
+
+The project includes:
+
+* Automatic database and table creation
+* Initial task seeding
+* Full CRUD operations using SQLite
+* Parameterized SQL queries
+* Input validation and appropriate HTTP status codes
+* Swagger/OpenAPI documentation
+* DB Browser verification
