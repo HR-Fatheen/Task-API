@@ -29,8 +29,7 @@ The API supports the complete CRUD lifecycle for tasks — creating, retrieving,
 ### 1. Clone the repository
 
 ```bash
-git clone <your-github-repository-url>
-cd <repository-folder>
+git clone <https://github.com/HR-Fatheen/Task-API>
 ```
 
 ### 2. Create a virtual environment
