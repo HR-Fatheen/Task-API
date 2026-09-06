@@ -90,17 +90,27 @@ class UpdateTask(BaseModel):
 
 @app.put("/tasks/{id}", summary="Update a task")
 def update_task(id: int, task: UpdateTask):
-    for existing_task in tasks:
-        if existing_task["id"] == id:
-            if not task.title.strip():
-                raise HTTPException(status_code=400, detail="Title is required")
+    if not task.title.strip():
+        raise HTTPException(status_code=400, detail="Title is required")
 
-            existing_task["title"] = task.title
-            existing_task["done"] = task.done
+    connection = get_connection()
+    cursor = connection.cursor()
 
-            return existing_task
+    cursor.execute("""
+        UPDATE tasks
+        SET title = ?, done = ?
+        WHERE id = ?
+    """, (task.title.strip(), task.done, id))
 
-    raise HTTPException(status_code=404, detail="Task not found")
+    if cursor.rowcount == 0:
+        connection.close()
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    connection.commit()
+    cursor.execute("SELECT * FROM tasks WHERE id = ?", (id,))
+    updated_task = cursor.fetchone()
+    connection.close()
+    return dict(updated_task)
 
 @app.delete("/tasks/{id}", summary="Delete a task")
 def delete_task(id: int):
