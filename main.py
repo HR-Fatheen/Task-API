@@ -1,4 +1,5 @@
 from fastapi import FastAPI , HTTPException
+from database import get_connection
 from pydantic import BaseModel
 
 app = FastAPI()
@@ -40,15 +41,26 @@ tasks = [
 
 @app.get("/tasks", summary="List all tasks")
 def task_manager():
-    return tasks
+    connection = get_connection()
+    cursor = connection.cursor()
+    cursor.execute("SELECT * FROM tasks")
+    tasks = cursor.fetchall()
+    connection.close()
+    return [dict(task) for task in tasks]
 
 @app.get("/tasks/{id}", summary="Get a task by ID")
 def get_task(id: int):
-    for task in tasks:
-        if task["id"] == id:
-            return task
+    connection = get_connection()
+    cursor = connection.cursor()
 
-    raise HTTPException(status_code=404, detail="Task not found")
+    cursor.execute("SELECT * FROM tasks WHERE id = ?", (id,))
+    task = cursor.fetchone()
+    connection.close()
+
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    return dict(task)
 
 @app.post("/tasks", summary="Create a new task", status_code=201)
 def create_task(task: CreateTask):
