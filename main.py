@@ -6,7 +6,7 @@ app = FastAPI()
 class CreateTask(BaseModel):
     title:str | None = None
 
-@app.get("/")
+@app.get("/", summary="API information")
 def root():
     return {
         "name" : "Task API",
@@ -14,7 +14,7 @@ def root():
         "endpoints" : ["/tasks"]
     }
 
-@app.get("/health")
+@app.get("/health", summary="Health check")
 def health():
     return {
         "status" : "ok"
@@ -38,11 +38,11 @@ tasks = [
     }
 ]
 
-@app.get("/tasks")
+@app.get("/tasks", summary="List all tasks")
 def task_manager():
     return tasks
 
-@app.get("/tasks/{id}")
+@app.get("/tasks/{id}", summary="Get a task by ID")
 def get_task(id: int):
     for task in tasks:
         if task["id"] == id:
@@ -50,7 +50,7 @@ def get_task(id: int):
 
     raise HTTPException(status_code=404, detail="Task not found")
 
-@app.post("/tasks", status_code=201)
+@app.post("/tasks", summary="Create a new task", status_code=201)
 def create_task(task: CreateTask):
     if not task.title or not task.title.strip():
         raise HTTPException(status_code=400, detail="Title is required")
@@ -70,7 +70,7 @@ class UpdateTask(BaseModel):
     title: str
     done: bool
 
-@app.put("/tasks/{id}")
+@app.put("/tasks/{id}", summary="Update a task")
 def update_task(id: int, task: UpdateTask):
     for existing_task in tasks:
         if existing_task["id"] == id:
@@ -84,7 +84,7 @@ def update_task(id: int, task: UpdateTask):
 
     raise HTTPException(status_code=404, detail="Task not found")
 
-@app.delete("/tasks/{id}")
+@app.delete("/tasks/{id}", summary="Delete a task")
 def delete_task(id: int):
     for task in tasks:
         if task["id"] == id:
