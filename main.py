@@ -112,11 +112,11 @@ def update_task(id: int, task: UpdateTask):
     connection.close()
     return dict(updated_task)
 
-@app.delete("/tasks/{id}", summary="Delete a task")
+@app.delete("/tasks/{id}", summary="Delete a task", status_code=204)
 def delete_task(id: int):
     connection = get_connection()
     cursor = connection.cursor()
-    
+
     cursor.execute("""
         DELETE FROM tasks
         WHERE id = ?
@@ -128,5 +128,3 @@ def delete_task(id: int):
 
     connection.commit()
     connection.close()
-
-    return {"message": "Task deleted"}
