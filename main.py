@@ -65,3 +65,21 @@ def create_task(task: CreateTask):
 
     tasks.append(new_task)
     return new_task
+
+class UpdateTask(BaseModel):
+    title: str
+    done: bool
+
+@app.put("/tasks/{id}")
+def update_task(id: int, task: UpdateTask):
+    for existing_task in tasks:
+        if existing_task["id"] == id:
+            if not task.title.strip():
+                raise HTTPException(status_code=400, detail="Title is required")
+
+            existing_task["title"] = task.title
+            existing_task["done"] = task.done
+
+            return existing_task
+
+    raise HTTPException(status_code=404, detail="Task not found")
