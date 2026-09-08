@@ -1,6 +1,7 @@
 from fastapi import FastAPI , HTTPException
 from database import get_connection
 from pydantic import BaseModel
+from psycopg.rows import dict_row
 
 app = FastAPI()
 
@@ -21,27 +22,10 @@ def health():
         "status" : "ok"
     }
 
-tasks = [
-    {
-        "id": 1,
-        "title": "Learn Python",
-        "done": False
-    },
-    {
-        "id": 3,
-        "title": "Test The Product",
-        "done": False
-    },
-    {
-        "id": 2,
-        "title": "Configure The DB",
-        "done": False
-    }
-]
-
 @app.get("/tasks", summary="List all tasks")
 def task_manager():
     connection = get_connection()
+    connection.row_factory = dict_row
     cursor = connection.cursor()
     cursor.execute("SELECT * FROM tasks")
     tasks = cursor.fetchall()
@@ -51,9 +35,10 @@ def task_manager():
 @app.get("/tasks/{id}", summary="Get a task by ID")
 def get_task(id: int):
     connection = get_connection()
+    connection.row_factory = dict_row
     cursor = connection.cursor()
 
-    cursor.execute("SELECT * FROM tasks WHERE id = ?", (id,))
+    cursor.execute("SELECT * FROM tasks WHERE id = %s", (id,))
     task = cursor.fetchone()
     connection.close()
 
