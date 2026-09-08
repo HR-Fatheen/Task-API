@@ -48,7 +48,15 @@ python -m venv .venv
 pip install fastapi uvicorn
 ```
 
-### 4. Start the server
+### 4. Start PostgreSQL with Docker
+
+Run PostgreSQL in Docker with a persistent volume:
+
+```powershell
+docker run --name taskdb -e POSTGRES_PASSWORD=dev -e POSTGRES_DB=tasks -p 5432:5432 -v taskdata:/var/lib/postgresql/data -d postgres:16
+```
+
+### 5. Start the server
 
 ```powershell
 python -m uvicorn main:app --reload
