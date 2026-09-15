@@ -1,3 +1,4 @@
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi import FastAPI, HTTPException, Depends, Header
 from supabase_auth.errors import AuthApiError
 from fastapi.responses import JSONResponse
@@ -18,9 +19,8 @@ class AuthError(Exception):
     def __init__(self, error: str):
         self.error = error
 
-
 app = FastAPI(lifespan=lifespan)
-
+security = HTTPBearer(auto_error=False)
 
 @app.exception_handler(AuthError)
 async def auth_error_handler(request, exc):
@@ -44,11 +44,13 @@ class AuthRequest(BaseModel):
     password: str | None = None
 
 
-def get_current_user(authorization: str | None = Header(default=None)):
-    if not authorization or not authorization.startswith("Bearer "):
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security)
+):
+    if not credentials:
         raise AuthError("Access token required")
 
-    token = authorization.split(" ", 1)[1]
+    token = credentials.credentials
 
     if not token:
         raise AuthError("Access token required")
