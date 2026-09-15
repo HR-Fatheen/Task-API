@@ -1,16 +1,23 @@
+from datetime import datetime, timezone
+import json
+import re
 from pathlib import Path
 from time import monotonic, sleep
 from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
+from pydantic import BaseModel, HttpUrl, ValidationError
 
 
 BASE_URL = "https://books.toscrape.com/"
 CATALOGUE_PAGE_1_URL = urljoin(BASE_URL, "catalogue/page-1.html")
 
 CACHE_DIR = Path(__file__).resolve().parent.parent / "cache"
+OUTPUT_DIR = Path(__file__).resolve().parent.parent / "output"
+
 CACHE_DIR.mkdir(exist_ok=True)
+OUTPUT_DIR.mkdir(exist_ok=True)
 
 HEADERS = {
     "User-Agent": (
@@ -23,6 +30,18 @@ TIMEOUT = 5
 REQUEST_DELAY = 0.5
 
 last_request_time = 0.0
+
+
+class Book(BaseModel):
+    title: str
+    product_url: HttpUrl
+    price_text: str
+    price_gbp: float
+    availability_text: str
+    rating_text: str
+    description: str | None
+    source_page: HttpUrl
+    fetched_at: str
 
 
 def fetch_page(url, cache_file, verbose=False):
@@ -61,7 +80,6 @@ def fetch_page(url, cache_file, verbose=False):
             f"HTTP {response.status_code} for {url}"
         )
 
-    # Books to Scrape serves UTF-8 content.
     response.encoding = "utf-8"
 
     html = response.text
@@ -136,18 +154,44 @@ def discover_books():
 
 def clean_price_text(text):
     """
-    Fix common mojibake caused by incorrect character decoding.
+    Convert the scraped price into a clean GBP price string.
+
+    Examples:
+        Â£51.77 -> £51.77
+        Ã‚Â£51.77 -> £51.77
+        £51.77 -> £51.77
     """
 
     if not text:
         return None
 
-    return (
-        text
-        .replace("Â£", "£")
-        .replace("\xa0", " ")
+    text = text.replace("\xa0", " ").strip()
+
+    match = re.search(r"\d+(?:[.,]\d+)?", text)
+
+    if match:
+        number = match.group(0).replace(",", ".")
+        return f"£{number}"
+
+    return text
+
+
+def normalize_price(price_text):
+    """
+    Convert text such as '£51.77' into 51.77.
+    """
+
+    if not price_text:
+        raise ValueError("Missing price")
+
+    cleaned = (
+        price_text
+        .replace("£", "")
+        .replace(",", "")
         .strip()
     )
+
+    return float(cleaned)
 
 
 def clean_description(text):
@@ -161,8 +205,6 @@ def clean_description(text):
 
     text = " ".join(text.split())
 
-    # Some cached pages may contain the description twice.
-    # Detect a repeated opening section and keep the first copy.
     if len(text) > 240:
         prefix = text[:120]
         repeat_index = text.find(prefix, 120)
@@ -242,8 +284,6 @@ def extract_book(book_url, source_page, index):
         else None
     )
 
-    from datetime import datetime, timezone
-
     fetched_at = datetime.now(timezone.utc).isoformat()
 
     return {
@@ -258,27 +298,77 @@ def extract_book(book_url, source_page, index):
     }
 
 
+def validate_and_normalize(raw_record):
+    """
+    Add numeric price_gbp and validate the complete record
+    against the Pydantic Book schema.
+    """
+
+    normalized = raw_record.copy()
+
+    normalized["price_gbp"] = normalize_price(
+        raw_record["price_text"]
+    )
+
+    return Book.model_validate(normalized)
+
+
+def save_json(path, data):
+    with path.open("w", encoding="utf-8") as file:
+        json.dump(
+            data,
+            file,
+            indent=2,
+            ensure_ascii=False,
+        )
+
+
 def main():
     book_urls, source_pages = discover_books()
 
-    records = []
+    valid_books = []
+    errors = []
 
     for index, book_url in enumerate(book_urls, start=1):
         print(f"Processing books: {index}/{len(book_urls)}")
 
-        record = extract_book(
-            book_url,
-            source_pages[book_url],
-            index,
-        )
+        try:
+            raw_record = extract_book(
+                book_url,
+                source_pages[book_url],
+                index,
+            )
 
-        records.append(record)
+            book = validate_and_normalize(raw_record)
 
-    print(f"detail_pages={len(records)}")
+            valid_books.append(
+                book.model_dump(mode="json")
+            )
 
-    if records:
-        print("\nFirst raw record:")
-        print(records[0])
+        except (ValueError, ValidationError, RuntimeError) as exc:
+            errors.append(
+                {
+                    "product_url": book_url,
+                    "error": str(exc),
+                }
+            )
+
+    save_json(
+        OUTPUT_DIR / "books.json",
+        valid_books,
+    )
+
+    save_json(
+        OUTPUT_DIR / "errors.json",
+        errors,
+    )
+
+    print()
+    print(f"detail_pages={len(book_urls)}")
+    print(f"valid_records={len(valid_books)}")
+    print(f"invalid_records={len(errors)}")
+    print(f"Saved: {OUTPUT_DIR / 'books.json'}")
+    print(f"Saved: {OUTPUT_DIR / 'errors.json'}")
 
 
 if __name__ == "__main__":
