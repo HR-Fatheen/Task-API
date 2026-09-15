@@ -1,9 +1,18 @@
 from fastapi import FastAPI, HTTPException
+from contextlib import asynccontextmanager
+from supabase_client import supabase
 from database import get_connection
 from psycopg.rows import dict_row
 from pydantic import BaseModel
 
 app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("Server running and connected to Supabase")
+    yield
+
+app = FastAPI(lifespan=lifespan)
 
 
 class CreateTask(BaseModel):
