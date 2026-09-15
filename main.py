@@ -6,8 +6,7 @@ from supabase_client import supabase
 from database import get_connection
 from psycopg.rows import dict_row
 from pydantic import BaseModel
-
-app = FastAPI()
+from fastapi import Header
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -68,6 +67,24 @@ def login(auth: AuthRequest):
             status_code=401,
             content={"error": "Invalid login credentials"}
         )
+
+@app.get("/public/info")
+def public_info():
+    return {
+        "message": "This is a public endpoint"
+    }
+
+@app.get("/protected/profile")
+def protected_profile(authorization: str | None = Header(default=None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        return JSONResponse(
+            status_code=401,
+            content={"error": "Access token required"}
+        )
+
+    return {
+        "message": "This is a protected endpoint"
+    }
 
 @app.get("/", summary="API information")
 def root():
