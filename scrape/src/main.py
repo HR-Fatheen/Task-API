@@ -31,6 +31,13 @@ REQUEST_DELAY = 0.5
 
 last_request_time = 0.0
 
+stats = {
+    "requests": 0,
+    "cache_hits": 0,
+    "catalogue_pages": 0,
+    "detail_pages": 0,
+}
+
 
 class Book(BaseModel):
     title: str
@@ -47,6 +54,9 @@ class Book(BaseModel):
 def fetch_page(url, cache_file, verbose=False):
     """
     Fetch a page or use the cached copy if it already exists.
+
+    Temporary failures are retried once.
+    403 and 404 responses are not retried.
     Real requests are separated by at least 0.5 seconds.
     """
 
@@ -55,45 +65,84 @@ def fetch_page(url, cache_file, verbose=False):
     cache_path = CACHE_DIR / cache_file
 
     if cache_path.exists():
+        stats["cache_hits"] += 1
+
         if verbose:
             print(f"CACHE HIT: {cache_path}")
+
         return cache_path.read_text(encoding="utf-8")
 
-    elapsed = monotonic() - last_request_time
+    for attempt in range(2):
+        elapsed = monotonic() - last_request_time
 
-    if elapsed < REQUEST_DELAY:
-        sleep(REQUEST_DELAY - elapsed)
+        if elapsed < REQUEST_DELAY:
+            sleep(REQUEST_DELAY - elapsed)
 
-    if verbose:
-        print(f"FETCH: {url}")
+        if verbose:
+            print(f"FETCH: {url}")
 
-    response = requests.get(
-        url,
-        headers=HEADERS,
-        timeout=TIMEOUT,
-    )
+        try:
+            response = requests.get(
+                url,
+                headers=HEADERS,
+                timeout=TIMEOUT,
+            )
 
-    last_request_time = monotonic()
+            last_request_time = monotonic()
+            stats["requests"] += 1
 
-    if response.status_code != 200:
+        except requests.RequestException as exc:
+            last_request_time = monotonic()
+            stats["requests"] += 1
+
+            if attempt == 0:
+                print(f"Temporary request failure, retrying: {url}")
+                sleep(1)
+                continue
+
+            raise RuntimeError(
+                f"Request failed for {url}: {exc}"
+            ) from exc
+
+        if response.status_code == 200:
+            response.encoding = "utf-8"
+
+            html = response.text
+
+            cache_path.write_text(
+                html,
+                encoding="utf-8",
+            )
+
+            if verbose:
+                print(f"Response size: {len(html)} bytes")
+                print(f"Saved: {cache_path}")
+
+            return html
+
+        if response.status_code in (403, 404):
+            raise RuntimeError(
+                f"HTTP {response.status_code} for {url}"
+            )
+
+        if 500 <= response.status_code <= 599:
+            if attempt == 0:
+                print(
+                    f"Server error HTTP {response.status_code}, "
+                    f"retrying: {url}"
+                )
+                sleep(1)
+                continue
+
+            raise RuntimeError(
+                f"HTTP {response.status_code} for {url}"
+            )
+
         raise RuntimeError(
             f"HTTP {response.status_code} for {url}"
         )
 
-    response.encoding = "utf-8"
-
-    html = response.text
-
-    cache_path.write_text(
-        html,
-        encoding="utf-8",
-    )
-
-    if verbose:
-        print(f"Response size: {len(html)} bytes")
-        print(f"Saved: {cache_path}")
-
-    return html
+    raise RuntimeError(f"Failed to fetch {url}")
 
 
 def discover_books():
@@ -114,6 +163,8 @@ def discover_books():
             cache_file,
             verbose=True,
         )
+
+        stats["catalogue_pages"] += 1
 
         soup = BeautifulSoup(html, "html.parser")
 
@@ -144,7 +195,7 @@ def discover_books():
             )
 
     print(
-        f"catalogue_pages=3, "
+        f"catalogue_pages={stats['catalogue_pages']}, "
         f"discovered={len(book_urls)}, "
         f"unique_urls={len(set(book_urls))}"
     )
@@ -153,15 +204,6 @@ def discover_books():
 
 
 def clean_price_text(text):
-    """
-    Convert the scraped price into a clean GBP price string.
-
-    Examples:
-        Â£51.77 -> £51.77
-        Ã‚Â£51.77 -> £51.77
-        £51.77 -> £51.77
-    """
-
     if not text:
         return None
 
@@ -177,10 +219,6 @@ def clean_price_text(text):
 
 
 def normalize_price(price_text):
-    """
-    Convert text such as '£51.77' into 51.77.
-    """
-
     if not price_text:
         raise ValueError("Missing price")
 
@@ -195,11 +233,6 @@ def normalize_price(price_text):
 
 
 def clean_description(text):
-    """
-    Normalize whitespace and remove accidental repeated
-    description content if the same opening appears twice.
-    """
-
     if not text:
         return None
 
@@ -227,6 +260,8 @@ def extract_book(book_url, source_page, index):
         cache_file,
         verbose=False,
     )
+
+    stats["detail_pages"] += 1
 
     soup = BeautifulSoup(html, "html.parser")
 
@@ -299,11 +334,6 @@ def extract_book(book_url, source_page, index):
 
 
 def validate_and_normalize(raw_record):
-    """
-    Add numeric price_gbp and validate the complete record
-    against the Pydantic Book schema.
-    """
-
     normalized = raw_record.copy()
 
     normalized["price_gbp"] = normalize_price(
@@ -324,10 +354,25 @@ def save_json(path, data):
 
 
 def main():
-    book_urls, source_pages = discover_books()
+    started_at = datetime.now(timezone.utc)
+    start_monotonic = monotonic()
 
     valid_books = []
     errors = []
+    failed_pages = []
+
+    try:
+        book_urls, source_pages = discover_books()
+    except Exception as exc:
+        book_urls = []
+        source_pages = {}
+
+        errors.append(
+            {
+                "stage": "catalogue",
+                "error": str(exc),
+            }
+        )
 
     for index, book_url in enumerate(book_urls, start=1):
         print(f"Processing books: {index}/{len(book_urls)}")
@@ -353,6 +398,15 @@ def main():
                 }
             )
 
+            failed_pages.append(
+                {
+                    "product_url": book_url,
+                    "error": str(exc),
+                }
+            )
+
+            print(f"FAILED: {book_url}")
+
     save_json(
         OUTPUT_DIR / "books.json",
         valid_books,
@@ -363,12 +417,40 @@ def main():
         errors,
     )
 
+    duration_seconds = round(
+        monotonic() - start_monotonic,
+        2,
+    )
+
+    report = {
+        "started_at": started_at.isoformat(),
+        "duration_seconds": duration_seconds,
+        "catalogue_pages": stats["catalogue_pages"],
+        "detail_pages": stats["detail_pages"],
+        "requests": stats["requests"],
+        "cache_hits": stats["cache_hits"],
+        "valid_records": len(valid_books),
+        "invalid_records": len(errors),
+        "failed_pages": failed_pages,
+    }
+
+    save_json(
+        OUTPUT_DIR / "run-report.json",
+        report,
+    )
+
     print()
-    print(f"detail_pages={len(book_urls)}")
+    print(f"catalogue_pages={stats['catalogue_pages']}")
+    print(f"detail_pages={stats['detail_pages']}")
     print(f"valid_records={len(valid_books)}")
     print(f"invalid_records={len(errors)}")
+    print(f"failed_pages={len(failed_pages)}")
+    print(f"cache_hits={stats['cache_hits']}")
+    print(f"requests={stats['requests']}")
+    print(f"duration_seconds={duration_seconds}")
     print(f"Saved: {OUTPUT_DIR / 'books.json'}")
     print(f"Saved: {OUTPUT_DIR / 'errors.json'}")
+    print(f"Saved: {OUTPUT_DIR / 'run-report.json'}")
 
 
 if __name__ == "__main__":
