@@ -81,10 +81,20 @@ def protected_profile(authorization: str | None = Header(default=None)):
             status_code=401,
             content={"error": "Access token required"}
         )
+    token = authorization.split(" ", 1)[1]
+    try:
+        response = supabase.auth.get_user(token)
 
-    return {
-        "message": "This is a protected endpoint"
-    }
+        return {
+            "id": response.user.id,
+            "email": response.user.email
+        }
+
+    except AuthApiError:
+        return JSONResponse(
+            status_code=401,
+            content={"error": "Invalid or expired token"}
+        )
 
 @app.get("/", summary="API information")
 def root():
