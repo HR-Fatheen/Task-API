@@ -16,6 +16,13 @@ The project started as an in-memory Task API and was progressively migrated to S
 * Proper HTTP status codes
 * Error handling for invalid titles and missing tasks
 * Automatic Swagger/OpenAPI documentation
+* Supabase Authentication
+* JWT access token verification
+* Protected API routes
+* Reusable authentication dependency
+* Swagger Bearer authentication
+* Login and signup endpoints
+* Logout endpoint
 * Dockerized FastAPI application
 * Dockerized PostgreSQL database
 * Persistent PostgreSQL storage using a named Docker volume
@@ -34,6 +41,8 @@ The project started as an in-memory Task API and was progressively migrated to S
 | Docker            | Application and database containers |
 | Docker Compose    | Multi-container orchestration       |
 | Swagger / OpenAPI | Interactive API documentation       |
+| Supabase          | Authentication and user management  |
+| JWT               | Access token authentication         |
 
 ## Getting Started
 
@@ -60,11 +69,18 @@ Create a `.env` file in the project root:
 POSTGRES_PASSWORD=your_password_here
 POSTGRES_DB=tasks
 DATABASE_URL=postgres://postgres:your_password_here@localhost:5432/tasks
+SUPABASE_URL=your_supabase_project_url
+SUPABASE_KEY=your_supabase_anon_or_publishable_key
+PORT=8000
 ```
 
 The `.env` file is excluded from Git using `.gitignore`.
 
 A `.env.example` file is included in the repository as a configuration reference.
+
+For Supabase authentication, set `SUPABASE_URL` and `SUPABASE_KEY` using the values from your Supabase project.
+
+Never commit `.env` or expose Supabase credentials in the repository.
 
 ### 3. Start the application
 
@@ -124,6 +140,79 @@ From Swagger UI, you can execute and test all API endpoints directly from your b
 |  `POST`  | `/tasks`      | Creates a new task            |
 |   `PUT`  | `/tasks/{id}` | Updates an existing task      |
 | `DELETE` | `/tasks/{id}` | Deletes a task                |
+| `POST`   | `/auth/signup`| Creates a new user account    |
+| `POST`   | `/auth/login` | Authenticates a user and returns access/refresh tokens |
+| `POST`   | `/auth/logout`|Logs out the authenticated user|
+| `GET`    | `/public/info`| Public information endpoint   |
+| `GET`    |`/protected/profile` |Returns authenticated user information |
+| `GET`    |`/protected/status` |Verifies that the request is authenticated|
+
+## Authentication
+
+The API uses Supabase Authentication with JWT access tokens.
+
+### Signup
+
+Create a new user account using:
+
+`POST /auth/signup`
+
+Example request:
+
+```json
+{
+  "email": "user@example.com",
+  "password": "your_password"
+}
+```
+
+### Login
+
+Authenticate an existing user using:
+```json
+POST /auth/login
+```
+
+A successful login returns an access token and refresh token.
+
+The access token must be included when calling protected endpoints:
+```text
+Authorization: Bearer <access_token>
+```
+
+### Protected Routes
+
+The following routes require a valid access token:
+```text
+GET /protected/profile
+GET /protected/status
+POST /auth/logout
+```
+
+Requests without a token return:
+```json
+{
+  "error": "Access token required"
+}
+```
+
+Invalid or expired tokens return:
+```json
+{
+  "error": "Invalid or expired token"
+}
+```
+
+### Swagger Authentication
+
+Swagger UI supports Bearer authentication.
+
+Open:
+```json
+http://localhost:8000/docs
+```
+
+Click Authorize, enter the access token, and then execute the protected endpoints.
 
 ## Request Examples
 
@@ -190,6 +279,20 @@ The DELETE endpoint does not return a response body when the task is successfull
 |      `400 Bad Request`     | Task title is missing or empty     |
 |       `404 Not Found`      | Requested task does not exist      |
 | `422 Unprocessable Entity` | Request body contains invalid data |
+| `401 Unauthorized` | Missing, invalid, or expired authentication token |
+
+## Authentication Flow
+
+The authentication flow is:
+
+1. User signs up using `/auth/signup`.
+2. User logs in using `/auth/login`.
+3. Supabase returns an access token and refresh token.
+4. The client sends the access token using the `Authorization` header.
+5. Protected routes verify the JWT through Supabase.
+6. Invalid or expired tokens are rejected with `401 Unauthorized`.
+
+Authentication is implemented using a reusable FastAPI dependency, which is shared by the protected routes.
 
 ## PostgreSQL Database
 
@@ -323,6 +426,7 @@ Task-API/
 │
 ├── main.py
 ├── database.py
+├── supabase_client.py
 ├── requirements.txt
 ├── Dockerfile
 ├── compose.yaml
@@ -364,6 +468,22 @@ The final implementation includes:
 * Input validation
 * Persistent data across container restarts
 
+### Assignment 4 — Supabase Authentication
+
+The API was secured using Supabase Authentication and JWT access tokens.
+
+The implementation includes:
+
+* Supabase Authentication setup
+* User signup and login
+* JWT access token verification
+* Protected API routes
+* Reusable authentication dependency
+* Authenticated logout endpoint
+* Swagger Bearer authentication
+* Public and protected endpoints
+* Authentication error handling
+
 ## PostgreSQL Database Verification
 
 PostgreSQL was verified using `psql` inside the PostgreSQL Docker container.
@@ -374,7 +494,11 @@ The database contains the `tasks` table and the seeded task records.
 
 ## Swagger UI
 
-The API was tested using FastAPI's built-in Swagger UI, including the complete CRUD workflow:
+The API was tested using FastAPI's built-in Swagger UI.
+
+Swagger UI supports Bearer authentication for protected endpoints. Use the **Authorize** button to provide a valid access token.
+
+The complete CRUD workflow was also tested:
 
 **Create → Read → Update → Delete**
 
@@ -382,9 +506,9 @@ The API was tested using FastAPI's built-in Swagger UI, including the complete C
 
 ## Project Status
 
-**Assignment 3 — Containerized FastAPI + PostgreSQL**
+**Assignment 4 — FastAPI + PostgreSQL + Supabase Authentication**
 
-The Task API is fully containerized using Docker Compose.
+The Task API is fully containerized using Docker Compose and secured using Supabase Authentication.
 
 The complete stack can be started with:
 
