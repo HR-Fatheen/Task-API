@@ -1,3 +1,5 @@
+from supabase_auth.errors import AuthApiError
+from fastapi.responses import JSONResponse
 from fastapi import FastAPI, HTTPException
 from contextlib import asynccontextmanager
 from supabase_client import supabase
@@ -23,6 +25,49 @@ class UpdateTask(BaseModel):
     title: str
     done: bool
 
+class AuthRequest(BaseModel):
+    email: str | None = None
+    password: str | None = None
+
+@app.post("/auth/signup", status_code=201)
+def signup(auth: AuthRequest):
+    if not auth.email or not auth.password:
+        raise HTTPException(
+            status_code=400,
+            detail="Email and password are required"
+        )
+
+    response = supabase.auth.sign_up({
+        "email": auth.email,
+        "password": auth.password
+    })
+
+    return response.user
+
+@app.post("/auth/login")
+def login(auth: AuthRequest):
+    if not auth.email or not auth.password:
+        raise HTTPException(
+            status_code=400,
+            detail="Email and password are required"
+        )
+
+    try:
+        response = supabase.auth.sign_in_with_password({
+            "email": auth.email,
+            "password": auth.password
+        })
+
+        return {
+            "access_token": response.session.access_token,
+            "refresh_token": response.session.refresh_token
+        }
+
+    except AuthApiError:
+        return JSONResponse(
+            status_code=401,
+            content={"error": "Invalid login credentials"}
+        )
 
 @app.get("/", summary="API information")
 def root():
@@ -95,7 +140,6 @@ def create_task(task: CreateTask):
     connection.close()
 
     return new_task
-
 
 @app.put("/tasks/{id}", summary="Update a task")
 def update_task(id: int, task: UpdateTask):
