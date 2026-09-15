@@ -1,36 +1,50 @@
-from fastapi import FastAPI , HTTPException
+from fastapi import FastAPI, HTTPException
 from database import get_connection
-from pydantic import BaseModel
 from psycopg.rows import dict_row
+from pydantic import BaseModel
 
 app = FastAPI()
 
+
 class CreateTask(BaseModel):
-    title:str | None = None
+    title: str | None = None
+
+
+class UpdateTask(BaseModel):
+    title: str
+    done: bool
+
 
 @app.get("/", summary="API information")
 def root():
     return {
-        "name" : "Task API",
-        "version" : "1.0",
-        "endpoints" : ["/tasks"]
+        "name": "Task API",
+        "version": "1.0",
+        "endpoints": ["/tasks"]
     }
+
 
 @app.get("/health", summary="Health check")
 def health():
     return {
-        "status" : "ok"
+        "status": "ok"
     }
+
 
 @app.get("/tasks", summary="List all tasks")
 def task_manager():
     connection = get_connection()
     connection.row_factory = dict_row
     cursor = connection.cursor()
+
     cursor.execute("SELECT * FROM tasks")
     tasks = cursor.fetchall()
+
+    cursor.close()
     connection.close()
-    return [dict(task) for task in tasks]
+
+    return tasks
+
 
 @app.get("/tasks/{id}", summary="Get a task by ID")
 def get_task(id: int):
@@ -40,38 +54,39 @@ def get_task(id: int):
 
     cursor.execute("SELECT * FROM tasks WHERE id = %s", (id,))
     task = cursor.fetchone()
+
+    cursor.close()
     connection.close()
 
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    return dict(task)
+    return task
+
 
 @app.post("/tasks", summary="Create a new task", status_code=201)
 def create_task(task: CreateTask):
     if not task.title or not task.title.strip():
         raise HTTPException(status_code=400, detail="Title is required")
-    
+
     connection = get_connection()
+    connection.row_factory = dict_row
     cursor = connection.cursor()
 
     cursor.execute("""
         INSERT INTO tasks (title, done)
-        VALUES (?,?)
+        VALUES (%s, %s)
+        RETURNING id, title, done
     """, (task.title.strip(), False))
-    new_id = cursor.lastrowid
+
+    new_task = cursor.fetchone()
+
     connection.commit()
+    cursor.close()
     connection.close()
 
-    return{
-        "id": new_id,
-        "title": task.title.strip(),
-        "done": False
-    }
+    return new_task
 
-class UpdateTask(BaseModel):
-    title: str
-    done: bool
 
 @app.put("/tasks/{id}", summary="Update a task")
 def update_task(id: int, task: UpdateTask):
@@ -79,23 +94,28 @@ def update_task(id: int, task: UpdateTask):
         raise HTTPException(status_code=400, detail="Title is required")
 
     connection = get_connection()
+    connection.row_factory = dict_row
     cursor = connection.cursor()
 
     cursor.execute("""
         UPDATE tasks
-        SET title = ?, done = ?
-        WHERE id = ?
+        SET title = %s, done = %s
+        WHERE id = %s
+        RETURNING id, title, done
     """, (task.title.strip(), task.done, id))
 
-    if cursor.rowcount == 0:
+    updated_task = cursor.fetchone()
+
+    if updated_task is None:
         connection.close()
         raise HTTPException(status_code=404, detail="Task not found")
 
     connection.commit()
-    cursor.execute("SELECT * FROM tasks WHERE id = ?", (id,))
-    updated_task = cursor.fetchone()
+    cursor.close()
     connection.close()
-    return dict(updated_task)
+
+    return updated_task
+
 
 @app.delete("/tasks/{id}", summary="Delete a task", status_code=204)
 def delete_task(id: int):
@@ -104,7 +124,7 @@ def delete_task(id: int):
 
     cursor.execute("""
         DELETE FROM tasks
-        WHERE id = ?
+        WHERE id = %s
     """, (id,))
 
     if cursor.rowcount == 0:
@@ -112,4 +132,5 @@ def delete_task(id: int):
         raise HTTPException(status_code=404, detail="Task not found")
 
     connection.commit()
+    cursor.close()
     connection.close()
